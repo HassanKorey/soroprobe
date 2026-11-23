@@ -2,6 +2,7 @@ package probe_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -170,6 +171,74 @@ func TestCheckBatchRejectsMalformedBatches(t *testing.T) {
 		_, err := p.CheckBatch(context.Background(), req)
 		assert.ErrorIs(t, err, probe.ErrInvalidBatch, name)
 	}
+}
+
+func TestBatchItemJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Both Result and Error are populated so every exported field is exercised,
+	// even though a real BatchItem carries exactly one of them.
+	original := probe.BatchItem{
+		Name:       "native",
+		ContractID: stellartest.SACContract,
+		Result: &probe.CheckResult{
+			ContractID: stellartest.SACContract,
+			OK:         true,
+			Status:     health.StatusHealthy,
+			Checks: []probe.Check{
+				{Name: "deployment", Outcome: probe.OutcomePass, Detail: "contract exists"},
+			},
+			LatestLedger:  1_234_567,
+			CloseTimeNote: "measured 5s per ledger",
+		},
+		Error: "check timed out after 45s",
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded probe.BatchItem
+	require.NoError(t, json.Unmarshal(data, &decoded))
+
+	assert.Equal(t, original, decoded)
+}
+
+func TestBatchRequestJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	original := probe.BatchRequest{
+		Checks: []probe.NamedCheck{{
+			Name:    "native",
+			Timeout: "45s",
+			CheckRequest: probe.CheckRequest{
+				ContractID:       stellartest.SACContract,
+				Function:         "decimals",
+				Args:             []string{"sym:Balance"},
+				Expect:           "u32:6",
+				DataKeys:         []string{"sym:Balance"},
+				DataDurability:   health.DurabilityTemporary,
+				ExpectedWASMHash: "9f2c4d",
+				Standard:         "sep-41",
+				AdminFn:          "admin",
+				AdminKey:         "sym:Admin",
+				Upgradeability:   true,
+				RentPayer:        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+				ExtendLedgers:    120_960,
+			},
+		}},
+		// Concurrency is json:"-", so only its zero value can survive the wire.
+		// The assertions below pin that down explicitly.
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded probe.BatchRequest
+	require.NoError(t, json.Unmarshal(data, &decoded))
+
+	assert.Equal(t, original, decoded)
+	assert.Zero(t, decoded.Concurrency)
+	assert.NotContains(t, string(data), "concurrency", "Concurrency is excluded from the JSON payload")
 }
 
 func TestCheckBatchStopsOnCancel(t *testing.T) {

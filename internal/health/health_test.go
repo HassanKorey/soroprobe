@@ -1,6 +1,7 @@
 package health_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -63,6 +64,53 @@ func TestEvaluateUsesMeasuredCloseTime(t *testing.T) {
 
 	got := health.EvaluateWithCloseTime(ptr(1_000_010), 1_000_000, health.DurabilityPersistent, health.DefaultThresholds, 4*time.Second)
 	assert.Equal(t, 40*time.Second, got.EstimatedTimeLeft)
+}
+
+func TestThresholdOverrideJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Both pointer fields are set so their JSON tags and values are exercised
+	// rather than omitted by omitempty.
+	original := health.ThresholdOverride{
+		Warn:     ptr(120_960),
+		Critical: ptr(17_280),
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded health.ThresholdOverride
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	assert.Equal(t, original, decoded)
+}
+
+func TestThresholdOverridesJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Every per-kind override, and both thresholds inside each, is populated so
+	// no field is dropped by omitempty.
+	original := health.ThresholdOverrides{
+		Instance: &health.ThresholdOverride{Warn: ptr(120_960), Critical: ptr(17_280)},
+		Code:     &health.ThresholdOverride{Warn: ptr(60_480), Critical: ptr(8_640)},
+		Data:     &health.ThresholdOverride{Warn: ptr(30_240), Critical: ptr(4_320)},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded health.ThresholdOverrides
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	assert.Equal(t, original, decoded)
 }
 
 func TestResolveThresholdsPerKindFallsBackIndependently(t *testing.T) {
